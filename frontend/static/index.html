@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Jellyfin Music Ingestion</title>
+<link rel="icon" href="data:," />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark" aria-hidden="true">
+      <span></span><span></span><span></span><span></span>
+    </div>
+    <div class="brand-text">
+      <h1>Jellyfin Music Ingestion</h1>
+      <p id="brand-sub">costruisce la tua libreria, non solo scarica file</p>
+    </div>
+  </div>
+  <div class="topbar-status">
+    <span class="pill" id="version-pill">v…</span>
+    <span class="pill" id="jellyfin-pill">Jellyfin: —</span>
+  </div>
+</header>
+
+<main class="layout">
+
+  <!-- HERO: ingest -->
+  <section class="panel hero" aria-label="Aggiungi un brano">
+    <form id="analyze-form" autocomplete="off">
+      <label for="url-input" class="hero-label">Incolla un link YouTube</label>
+      <div class="hero-row">
+        <input id="url-input" name="url" type="url" inputmode="url"
+               placeholder="https://www.youtube.com/watch?v=…" required />
+        <button type="submit" class="btn btn-accent" id="analyze-btn">Analizza</button>
+      </div>
+      <p class="hero-hint">Video singoli o playlist: verranno mostrati i metadata prima di scaricare nulla.</p>
+      <p class="form-error" id="analyze-error" hidden></p>
+    </form>
+  </section>
+
+  <!-- PREVIEW: singolo video -->
+  <section class="panel preview" id="preview-panel" hidden aria-label="Anteprima brano">
+    <div class="preview-grid">
+      <div class="cover-wrap">
+        <img id="preview-cover" alt="" />
+      </div>
+      <div class="preview-fields">
+        <div class="field"><label>Titolo</label><input id="f-title" type="text" /></div>
+        <div class="field"><label>Artista</label><input id="f-artist" type="text" /></div>
+        <div class="field"><label>Album <span class="optional">(opzionale — vuoto = Singles)</span></label><input id="f-album" type="text" /></div>
+        <div class="field"><label>Album artist</label><input id="f-album-artist" type="text" /></div>
+        <div class="field-row">
+          <div class="field small"><label>Traccia</label><input id="f-track" type="number" min="1" /></div>
+          <div class="field small"><label>Disco</label><input id="f-disc" type="number" min="1" /></div>
+          <div class="field small"><label>Anno</label><input id="f-year" type="number" min="1900" max="2100" /></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Genere</label><input id="f-genre" type="text" /></div>
+          <div class="field"><label>Compositore</label><input id="f-composer" type="text" /></div>
+        </div>
+        <label class="checkbox"><input id="f-compilation" type="checkbox" /> Compilation (Various Artists)</label>
+      </div>
+    </div>
+    <div class="preview-actions">
+      <button class="btn btn-ghost" id="preview-cancel">Annulla</button>
+      <button class="btn btn-accent" id="preview-download">Scarica</button>
+    </div>
+  </section>
+
+  <!-- PREVIEW: playlist -->
+  <section class="panel preview" id="playlist-panel" hidden aria-label="Anteprima playlist">
+    <div class="playlist-header">
+      <h2 id="playlist-title">Playlist</h2>
+      <label class="checkbox"><input id="playlist-select-all" type="checkbox" checked /> Seleziona tutti</label>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Album (applicato a tutti i selezionati)</label><input id="pl-album" type="text" placeholder="es. nome della raccolta" /></div>
+      <div class="field"><label>Album artist</label><input id="pl-album-artist" type="text" /></div>
+      <label class="checkbox"><input id="pl-compilation" type="checkbox" /> Various Artists</label>
+    </div>
+    <ol class="playlist-items" id="playlist-items"></ol>
+    <div class="preview-actions">
+      <button class="btn btn-ghost" id="playlist-cancel">Annulla</button>
+      <button class="btn btn-accent" id="playlist-queue">Accoda selezionati</button>
+    </div>
+  </section>
+
+  <!-- QUEUE -->
+  <section class="panel" aria-label="Coda di download">
+    <div class="section-head">
+      <h2>Coda</h2>
+      <span class="count-badge" id="queue-count">0</span>
+    </div>
+    <ul class="queue-list" id="queue-list">
+      <li class="empty-state" id="queue-empty">Nessun download attivo. Incolla un link per iniziare.</li>
+    </ul>
+  </section>
+
+  <!-- HISTORY -->
+  <section class="panel" aria-label="Libreria e cronologia">
+    <div class="section-head">
+      <h2>Libreria</h2>
+      <div class="tabs" id="history-tabs">
+        <button class="tab active" data-status="">Tutti</button>
+        <button class="tab" data-status="COMPLETED">Completati</button>
+        <button class="tab" data-status="FAILED">Falliti</button>
+        <button class="tab" data-status="SKIPPED">Duplicati</button>
+      </div>
+    </div>
+    <table class="history-table">
+      <thead>
+        <tr><th>Brano</th><th>Album</th><th>Stato</th><th></th></tr>
+      </thead>
+      <tbody id="history-body"></tbody>
+    </table>
+    <p class="empty-state" id="history-empty" hidden>Ancora nulla qui.</p>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <span>Jellyfin Music Ingestion — pipeline modulare YouTube → libreria Jellyfin-ready.</span>
+</footer>
+
+<script src="/app.js"></script>
+</body>
+</html>

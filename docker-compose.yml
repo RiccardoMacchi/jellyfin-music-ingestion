@@ -1,0 +1,26 @@
+# Uso locale/standalone (fuori da Coolify). Coolify gestira' i propri mount
+# a partire dallo stesso Dockerfile: questo file serve per sviluppo e per
+# chi vuole eseguire il servizio senza Coolify.
+services:
+  jellyfin-music-ingestion:
+    build: .
+    container_name: jellyfin-music-ingestion
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - MUSIC_DIR=/music
+      - DATA_DIR=/data
+      - DOWNLOAD_DIR=/downloads
+      - AUDIO_FORMAT=m4a
+      - AUDIO_BITRATE=192K
+      - MAX_CONCURRENT_DOWNLOADS=1
+      - COVER_POLICY=preserve
+      - JELLYFIN_ENABLED=false
+      - JELLYFIN_URL=
+      - JELLYFIN_API_KEY=
+      - TZ=Europe/Rome
+    volumes:
+      - ./music:/music
+      - ./data:/data
+      - ./downloads:/downloads
