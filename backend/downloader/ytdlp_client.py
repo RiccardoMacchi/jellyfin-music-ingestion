@@ -57,8 +57,29 @@ class PlaylistInfo:
     entries: list[PlaylistEntry]
 
 
+def _auth_opts() -> dict:
+    """Opzioni per aggirare il blocco anti-bot di YouTube.
+
+    - `cookiefile`: cookie di un browser loggato, se configurato. E' la via
+      piu' affidabile contro "Sign in to confirm you're not a bot".
+    - `extractor_args`: client YouTube alternativo, a volte sufficiente da solo.
+    """
+    opts: dict = {}
+
+    cookies = (settings.youtube_cookies_file or "").strip()
+    if cookies:
+        opts["cookiefile"] = cookies
+
+    player_client = (settings.youtube_player_client or "").strip()
+    if player_client:
+        clients = [c.strip() for c in player_client.split(",") if c.strip()]
+        opts["extractor_args"] = {"youtube": {"player_client": clients}}
+
+    return opts
+
+
 def _base_opts(quiet: bool = True) -> dict:
-    return {
+    opts = {
         "quiet": quiet,
         "no_warnings": quiet,
         "noplaylist": False,
@@ -68,6 +89,8 @@ def _base_opts(quiet: bool = True) -> dict:
         "retries": 3,
         "nocheckcertificate": False,
     }
+    opts.update(_auth_opts())
+    return opts
 
 
 def extract_video_info(url: str) -> VideoInfo:
@@ -161,6 +184,7 @@ def download_audio(
         "progress_hooks": hooks,
         "postprocessors": [],  # nessuna conversione qui: la fa ffmpeg a valle
     }
+    opts.update(_auth_opts())
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:

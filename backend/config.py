@@ -32,6 +32,17 @@ class Settings(BaseSettings):
 
     max_concurrent_downloads: int = 1
 
+    # Path (dentro il container) a un file cookies.txt in formato Netscape,
+    # esportato da un browser loggato su YouTube. Serve ad aggirare il blocco
+    # "Sign in to confirm you're not a bot" quando le richieste partono da un
+    # IP server. Vuoto = nessun cookie (funziona solo se l'IP non e' bloccato).
+    youtube_cookies_file: str = ""
+
+    # Client YouTube usato dall'extractor. Un client alternativo (es. "android"
+    # o "web_safari") a volte basta a sbloccare senza cookie. Vuoto = default
+    # di yt-dlp. Piu' valori separati da virgola sono ammessi (fallback).
+    youtube_player_client: str = ""
+
     cover_policy: str = "preserve"  # preserve | overwrite
 
     jellyfin_enabled: bool = False
