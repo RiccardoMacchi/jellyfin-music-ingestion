@@ -10,6 +10,7 @@ chiamanti async tramite `asyncio.to_thread` (fatto nel queue worker).
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
@@ -68,7 +69,17 @@ def _auth_opts() -> dict:
 
     cookies = (settings.youtube_cookies_file or "").strip()
     if cookies:
-        opts["cookiefile"] = cookies
+        if os.path.isfile(cookies):
+            logger.info("yt-dlp: uso cookie file %s", cookies)
+            opts["cookiefile"] = cookies
+        else:
+            logger.warning(
+                "yt-dlp: YOUTUBE_COOKIES_FILE=%s ma il file NON esiste dentro il "
+                "container (o non e' leggibile). I cookie NON verranno usati.",
+                cookies,
+            )
+    else:
+        logger.info("yt-dlp: nessun cookie file configurato (YOUTUBE_COOKIES_FILE vuoto)")
 
     player_client = (settings.youtube_player_client or "").strip()
     if player_client:
