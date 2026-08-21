@@ -100,6 +100,10 @@ def _base_opts(quiet: bool = True) -> dict:
         "noplaylist": False,
         "skip_download": True,
         "extract_flat": False,
+        # In analisi vogliamo SOLO i metadata (titolo, uploader, thumbnail): non
+        # deve fallire se la risoluzione dei formati e' problematica (es. YouTube
+        # che forza SABR). Il formato scaricabile lo cerca il download vero.
+        "ignore_no_formats_error": True,
         "socket_timeout": 30,
         "retries": 3,
         "nocheckcertificate": False,
