@@ -2,7 +2,11 @@ fastapi==0.115.0
 uvicorn[standard]==0.30.6
 pydantic==2.9.2
 pydantic-settings==2.5.2
-yt-dlp==2024.10.7
+# NON pinnare a una versione fissa: yt-dlp insegue le contromisure anti-bot di
+# YouTube e va tenuto aggiornato. Un pin vecchio causa "Sign in to confirm
+# you're not a bot" / HTTP 400. Ricostruire l'immagine con --no-cache per
+# forzare il pull dell'ultima versione.
+yt-dlp>=2025.8.0
 mutagen==1.47.0
 httpx==0.27.2
 Pillow==10.4.0

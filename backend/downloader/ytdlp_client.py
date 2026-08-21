@@ -86,6 +86,10 @@ def _auth_opts() -> dict:
         clients = [c.strip() for c in player_client.split(",") if c.strip()]
         opts["extractor_args"] = {"youtube": {"player_client": clients}}
 
+    remote = (settings.youtube_remote_components or "").strip()
+    if remote:
+        opts["remote_components"] = [c.strip() for c in remote.split(",") if c.strip()]
+
     return opts
 
 

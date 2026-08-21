@@ -10,6 +10,13 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg curl gosu \
     && rm -rf /var/lib/apt/lists/*
 
+# Runtime JavaScript per yt-dlp. Dal 2025 YouTube richiede la risoluzione di
+# sfide JS e la generazione di PO Token: yt-dlp le esegue tramite un runtime JS
+# esterno (Deno e' quello abilitato di default). Senza, l'estrazione YouTube e'
+# deprecata e fallisce con "Sign in to confirm you're not a bot". Copiamo il
+# binario dall'immagine ufficiale: e' multi-arch (funziona anche su ARM64).
+COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
+
 WORKDIR /app
 
 # Le dipendenze cambiano meno spesso del codice: layer separato per sfruttare
@@ -32,6 +39,8 @@ RUN groupadd -g 1000 appuser \
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    DENO_DIR=/tmp/deno \
+    XDG_CACHE_HOME=/tmp/cache \
     PORT=8000 \
     MUSIC_DIR=/music \
     DATA_DIR=/data \

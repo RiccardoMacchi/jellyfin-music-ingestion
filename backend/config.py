@@ -43,6 +43,14 @@ class Settings(BaseSettings):
     # di yt-dlp. Piu' valori separati da virgola sono ammessi (fallback).
     youtube_player_client: str = ""
 
+    # Componenti remoti EJS per risolvere le sfide JS/signature di YouTube.
+    # Dal 2025 yt-dlp, oltre a un runtime JS (Deno), deve SCARICARE uno script
+    # "challenge solver" da eseguire con quel runtime; senza, molti video
+    # falliscono con "Signature solving failed" / "The page needs to be
+    # reloaded". "ejs:github" (consigliato) scarica lo script da GitHub.
+    # Richiede egress verso github.com dal container. Vuoto = disabilitato.
+    youtube_remote_components: str = "ejs:github"
+
     cover_policy: str = "preserve"  # preserve | overwrite
 
     jellyfin_enabled: bool = False
