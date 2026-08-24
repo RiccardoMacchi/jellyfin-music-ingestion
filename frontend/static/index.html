@@ -2,9 +2,21 @@
 <html lang="it">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Jellyfin Music Ingestion</title>
-<link rel="icon" href="data:," />
+
+<!-- PWA -->
+<link rel="manifest" href="/manifest.webmanifest" />
+<meta name="theme-color" content="#0c0e11" />
+<meta name="mobile-web-app-capable" content="yes" />
+<!-- iOS: installazione "aggiungi a home" come app standalone -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Music Ingest" />
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -129,5 +141,16 @@
 </footer>
 
 <script src="/app.js"></script>
+<script>
+  // Registrazione del service worker: abilita l'installazione come PWA e un
+  // avvio piu' rapido del guscio statico. Non tocca le API (vedi sw.js).
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("/sw.js").catch((err) => {
+        console.warn("Service worker non registrato:", err);
+      });
+    });
+  }
+</script>
 </body>
 </html>

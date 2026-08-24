@@ -10,6 +10,7 @@ Responsabilita':
 """
 from __future__ import annotations
 
+import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -31,6 +32,11 @@ logger = get_logger(__name__)
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend" / "static"
 
+# Alcuni sistemi non conoscono questi tipi: registrali cosi' StaticFiles serve
+# il manifest PWA e il service worker con il Content-Type corretto.
+mimetypes.add_type("application/manifest+json", ".webmanifest")
+mimetypes.add_type("text/javascript", ".js")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -43,6 +49,10 @@ async def lifespan(app: FastAPI):
     recovered = download_repo.recover_stuck_jobs()
     if recovered:
         logger.warning("Recuperati %s job interrotti da un crash/restart precedente", recovered)
+
+    repaired = download_repo.repair_mislabeled_skips()
+    if repaired:
+        logger.info("Corretti %s job erroneamente marcati SKIPPED (file gia' in libreria)", repaired)
 
     queue_manager = QueueManager(download_repo)
 

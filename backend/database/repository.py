@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 from backend.database.db import Database
@@ -172,6 +173,28 @@ class DownloadRepository:
             (DownloadStatus.PENDING.value, *[s.value for s in RECOVERABLE_STATUSES]),
         )
         return cur.rowcount
+
+    def repair_mislabeled_skips(self) -> int:
+        """Corregge i job erroneamente marcati SKIPPED dal vecchio bug di
+        doppio-processing della coda: erano stati completati (file_path
+        valorizzato e file realmente presente in libreria) ma un secondo run
+        li aveva marcati SKIPPED come "duplicati". Se il file esiste davvero
+        li riporta a COMPLETED. Idempotente: i duplicati legittimi (livello 3)
+        non hanno file_path, quindi non vengono toccati."""
+        rows = self.db.query(
+            "SELECT * FROM downloads WHERE status = 'SKIPPED' "
+            "AND file_path IS NOT NULL AND file_path != ''"
+        )
+        fixed = 0
+        for row in rows:
+            record = _row_to_download(row)
+            if record.file_path and Path(record.file_path).exists():
+                self.db.execute(
+                    "UPDATE downloads SET status = ?, error = '' WHERE id = ?",
+                    (DownloadStatus.COMPLETED.value, record.id),
+                )
+                fixed += 1
+        return fixed
 
 
 class PlaylistRepository:

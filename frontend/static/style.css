@@ -68,6 +68,10 @@ input:focus-visible, button:focus-visible, .tab:focus-visible {
   align-items: center;
   justify-content: space-between;
   padding: 20px clamp(16px, 4vw, 40px);
+  /* iOS PWA standalone: non finire sotto la barra di stato / notch. */
+  padding-top: calc(20px + env(safe-area-inset-top));
+  padding-left: calc(clamp(16px, 4vw, 40px) + env(safe-area-inset-left));
+  padding-right: calc(clamp(16px, 4vw, 40px) + env(safe-area-inset-right));
   border-bottom: 1px solid var(--border-soft);
 }
 
@@ -389,6 +393,7 @@ input:focus-visible, button:focus-visible, .tab:focus-visible {
   color: var(--text-faint);
   font-size: 11.5px;
   padding: 30px 16px 40px;
+  padding-bottom: calc(40px + env(safe-area-inset-bottom));
 }
 
 /* ---------------- responsive ---------------- */
