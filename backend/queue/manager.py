@@ -44,12 +44,21 @@ class QueueManager:
     async def _loop(self) -> None:
         while self._running:
             try:
-                record = await asyncio.to_thread(self.repo.next_pending)
+                # Acquisiamo prima la capacita' e SOLO DOPO reclamiamo un job:
+                # next_pending lo marca atomicamente DOWNLOADING, quindi non va
+                # chiamato finche' non possiamo eseguirlo subito (altrimenti un
+                # job resterebbe DOWNLOADING pur essendo in attesa).
+                await self._semaphore.acquire()
+                try:
+                    record = await asyncio.to_thread(self.repo.next_pending)
+                except BaseException:
+                    self._semaphore.release()
+                    raise
                 if record is None:
+                    self._semaphore.release()
                     await asyncio.sleep(_IDLE_POLL_SECONDS)
                     continue
 
-                await self._semaphore.acquire()
                 asyncio.create_task(self._run_job(record))
             except asyncio.CancelledError:
                 raise

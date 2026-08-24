@@ -70,9 +70,16 @@ class DownloadRepository:
         return [_row_to_download(r) for r in rows]
 
     def next_pending(self) -> Optional[DownloadRecord]:
-        row = self.db.query_one(
-            "SELECT * FROM downloads WHERE status = ? ORDER BY id ASC LIMIT 1",
-            (DownloadStatus.PENDING.value,),
+        """Preleva ATOMICAMENTE il prossimo job PENDING marcandolo DOWNLOADING
+        nello stesso statement. Il claim atomico evita la race per cui il loop
+        della coda pescava due volte lo stesso job (prima che process_job ne
+        aggiornasse lo stato), causando un doppio download e il secondo run
+        che lo marcava SKIPPED trovando il file gia' spostato in libreria."""
+        row = self.db.execute_one(
+            "UPDATE downloads SET status = ?, started_at = COALESCE(started_at, ?) "
+            "WHERE id = (SELECT id FROM downloads WHERE status = ? ORDER BY id ASC LIMIT 1) "
+            "RETURNING *",
+            (DownloadStatus.DOWNLOADING.value, _now(), DownloadStatus.PENDING.value),
         )
         return _row_to_download(row) if row else None
 

@@ -126,3 +126,12 @@ class Database:
     def query_one(self, sql: str, params: tuple = ()) -> sqlite3.Row | None:
         rows = self.query(sql, params)
         return rows[0] if rows else None
+
+    def execute_one(self, sql: str, params: tuple = ()) -> sqlite3.Row | None:
+        """Esegue una scrittura con clausola RETURNING sotto il write lock e
+        restituisce la prima riga prodotta (o None). Serve per operazioni
+        "claim" atomiche (SELECT+UPDATE in un solo statement), es. prelevare
+        e marcare un job della coda evitando che venga pescato due volte."""
+        with _write_lock, self.cursor() as cur:
+            cur.execute(sql, params)
+            return cur.fetchone()
