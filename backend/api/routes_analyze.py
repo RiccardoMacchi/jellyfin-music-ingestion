@@ -12,6 +12,7 @@ from backend.api.schemas import (
     PlaylistAnalyzeResponse,
     PlaylistEntryOut,
 )
+from backend.config import settings
 from backend.downloader.validator import is_playlist_url
 from backend.downloader.ytdlp_client import DownloadError, extract_playlist_info, extract_video_info
 from backend.metadata.parser import parse_title
@@ -48,7 +49,7 @@ async def analyze(payload: AnalyzeRequest) -> AnalyzeResponse:
 @router.post("/playlist/analyze", response_model=PlaylistAnalyzeResponse)
 async def analyze_playlist(payload: PlaylistAnalyzeRequest) -> PlaylistAnalyzeResponse:
     try:
-        playlist = await asyncio.to_thread(extract_playlist_info, payload.url)
+        playlist = await asyncio.to_thread(extract_playlist_info, payload.url, settings.playlist_max_items)
     except DownloadError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

@@ -203,6 +203,16 @@ def download_audio(
         "progress_hooks": hooks,
         "postprocessors": [],  # nessuna conversione qui: la fa ffmpeg a valle
     }
+
+    # Pausa anti-spam prima del download (utile quando si accoda una playlist:
+    # evita di martellare YouTube brano dopo brano). yt-dlp aspetta un valore
+    # casuale tra i due estremi.
+    sleep_min = max(0.0, settings.download_sleep_min_seconds)
+    sleep_max = max(sleep_min, settings.download_sleep_max_seconds)
+    if sleep_min > 0:
+        opts["sleep_interval"] = sleep_min
+        opts["max_sleep_interval"] = sleep_max
+
     opts.update(_auth_opts())
 
     try:

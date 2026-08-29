@@ -394,6 +394,14 @@
       }
       const delBtn = el("button", "btn btn-ghost btn-sm", "Elimina");
       delBtn.addEventListener("click", async () => {
+        // Per i brani completati l'eliminazione rimuove ANCHE il file audio
+        // dalla libreria: chiediamo conferma per evitare cancellazioni per
+        // sbaglio.
+        const removesFile = d.status === "COMPLETED";
+        const msg = removesFile
+          ? `Eliminare "${d.title || "questo brano"}" dalla libreria? Il file audio verra' rimosso definitivamente.`
+          : `Rimuovere "${d.title || "questa voce"}" dalla cronologia?`;
+        if (!window.confirm(msg)) return;
         await fetchJSON(`/api/downloads/${d.id}`, { method: "DELETE" });
         loadHistory(currentHistoryStatus);
       });

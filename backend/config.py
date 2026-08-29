@@ -32,6 +32,15 @@ class Settings(BaseSettings):
 
     max_concurrent_downloads: int = 1
 
+    # Numero massimo di brani caricati quando si analizza una playlist.
+    playlist_max_items: int = 20
+
+    # Piccola pausa (secondi) prima del download di ogni brano, per non
+    # martellare YouTube quando si accoda una playlist. yt-dlp attende un
+    # valore casuale tra min e max. Metti entrambi a 0 per disattivare.
+    download_sleep_min_seconds: float = 2.0
+    download_sleep_max_seconds: float = 5.0
+
     # Path (dentro il container) a un file cookies.txt in formato Netscape,
     # esportato da un browser loggato su YouTube. Serve ad aggirare il blocco
     # "Sign in to confirm you're not a bot" quando le richieste partono da un

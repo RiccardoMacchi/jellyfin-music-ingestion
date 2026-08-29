@@ -11,6 +11,8 @@ from backend.database.models import DownloadRecord, DownloadStatus
 from backend.database.repository import DownloadRepository
 from backend.downloader.validator import InvalidURLError, extract_video_id_hint
 from backend.downloader.ytdlp_client import DownloadError, extract_video_info
+from backend.jellyfin.client import trigger_library_refresh
+from backend.library.mover import delete_from_library
 from backend.metadata.parser import parse_title
 from backend.queue.worker import request_cancel
 from backend.security.rate_limit import rate_limiter
@@ -142,5 +144,16 @@ async def delete_download(download_id: int, repo: DownloadRepository = Depends(g
     if record.status in (DownloadStatus.DOWNLOADING.value, DownloadStatus.PROCESSING.value):
         raise HTTPException(status_code=409, detail="Annulla il job prima di eliminarlo")
 
+    # Elimina anche il file audio dalla libreria (non solo il record in DB).
+    file_deleted = False
+    if record.file_path:
+        file_deleted = await asyncio.to_thread(delete_from_library, record.file_path)
+
     await asyncio.to_thread(repo.delete, download_id)
-    return {"deleted": True, "id": download_id}
+
+    # Se abbiamo tolto un file dalla libreria, chiediamo a Jellyfin di
+    # aggiornarsi cosi' il brano sparisce anche da li' (best-effort).
+    if file_deleted:
+        await trigger_library_refresh()
+
+    return {"deleted": True, "id": download_id, "file_deleted": file_deleted}
