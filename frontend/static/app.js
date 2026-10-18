@@ -625,6 +625,7 @@
   // Generi & playlist
   // ------------------------------------------------------------------
   let genrePollTimer = null;
+  let playlistsAvailable = false;
 
   async function loadGenres() {
     let data;
@@ -656,11 +657,11 @@
       ? `${data.untagged} brani in libreria senza genere.`
       : (data.genres.length ? "Tutti i brani in libreria hanno un genere." : "");
 
-    const syncBtn = $("#playlist-sync");
-    syncBtn.disabled = !data.playlists_available;
-    syncBtn.title = data.playlists_available
-      ? `Crea/aggiorna su Jellyfin le playlist "${data.playlist_prefix}<genere>"`
-      : "Configura JELLYFIN_ENABLED, JELLYFIN_URL e JELLYFIN_API_KEY per creare le playlist";
+    // Il pulsante resta cliccabile anche senza Jellyfin configurato: al click
+    // il server spiega cosa manca (un pulsante disabilitato non da' feedback,
+    // e su mobile il tooltip non si vede).
+    playlistsAvailable = data.playlists_available;
+    $("#playlist-sync").title = `Crea/aggiorna su Jellyfin le playlist "${data.playlist_prefix}<genere>"`;
 
     const b = data.backfill;
     const detectBtn = $("#genre-detect");
@@ -672,8 +673,10 @@
       if (genrePollTimer) {
         clearInterval(genrePollTimer);
         genrePollTimer = null;
-        setGenreStatus(`Riconoscimento completato: ${b.updated} aggiornati, ${b.not_found} non trovati` +
-          (b.errors ? `, ${b.errors} errori` : "") + ".");
+        setGenreStatus(b.total
+          ? `Riconoscimento completato su ${b.total} brani: ${b.updated} aggiornati, ${b.not_found} non trovati` +
+            (b.errors ? `, ${b.errors} errori` : "") + "."
+          : "Nessun brano da elaborare: hanno già tutti un genere (spunta \"Ricalcola\" per rifarli).");
         loadHistory(currentHistoryStatus);
       }
     }
@@ -686,6 +689,7 @@
   }
 
   $("#genre-detect").addEventListener("click", async () => {
+    setGenreStatus("Avvio del riconoscimento…");
     try {
       await fetchJSON("/api/genres/detect", {
         method: "POST",
@@ -702,6 +706,11 @@
 
   $("#playlist-sync").addEventListener("click", async () => {
     const btn = $("#playlist-sync");
+    if (!playlistsAvailable) {
+      setGenreStatus("Playlist non disponibili: imposta JELLYFIN_ENABLED=true, JELLYFIN_URL e " +
+        "JELLYFIN_API_KEY (e GENRE_PLAYLISTS_ENABLED=true) nelle variabili d'ambiente e riavvia il servizio.", true);
+      return;
+    }
     btn.disabled = true;
     setGenreStatus("Sincronizzazione playlist in corso…");
     try {

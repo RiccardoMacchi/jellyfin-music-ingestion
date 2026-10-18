@@ -48,19 +48,22 @@ def start_backfill(repo: DownloadRepository, force: bool = False) -> bool:
     global _task
     if _task and not _task.done():
         return False
+    # Stato "in corso" impostato SUBITO: la UI interroga /api/genres appena
+    # dopo l'avvio e, se il task non e' ancora partito, lo vedrebbe gia'
+    # "concluso" smettendo di aggiornarsi.
+    status.__init__(running=True)
     _task = asyncio.create_task(_run(repo, force), name="genre-backfill")
     return True
 
 
 async def _run(repo: DownloadRepository, force: bool) -> None:
-    records = await asyncio.to_thread(repo.list_completed)
-    todo = [
-        r for r in records
-        if r.genre_source != "manual" and (force or not r.genre.strip())
-    ]
-
-    status.__init__(running=True, total=len(todo))
     try:
+        records = await asyncio.to_thread(repo.list_completed)
+        todo = [
+            r for r in records
+            if r.genre_source != "manual" and (force or not r.genre.strip())
+        ]
+        status.total = len(todo)
         for record in todo:
             status.current = f"{record.artist} - {record.title}"
             try:

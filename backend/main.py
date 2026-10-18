@@ -85,5 +85,18 @@ app.include_router(downloads_router)
 app.include_router(events_router)
 app.include_router(genres_router)
 
+
+class FrontendFiles(StaticFiles):
+    """Il frontend non ha un build step con nomi file versionati: senza
+    Cache-Control il browser puo' tenere in cache app.js/style.css per giorni
+    (caching euristico) anche dopo un aggiornamento dell'app. "no-cache" =
+    puo' tenerli, ma deve chiedere conferma al server (ETag -> 304) ogni volta."""
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 if FRONTEND_DIR.exists():
-    app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
+    app.mount("/", FrontendFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")

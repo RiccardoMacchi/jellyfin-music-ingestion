@@ -380,3 +380,23 @@ def test_api_analyze_suggests_genre(client, monkeypatch):
     body = client.post("/api/analyze", json={"url": "https://youtu.be/abc"}).json()
     assert body["suggested_genre"] == "Pop"
     assert body["suggested_genre_source"] == "deezer"
+
+
+@pytest.mark.asyncio
+async def test_backfill_reports_running_immediately(configured_dirs, download_repo):
+    """La UI legge lo stato subito dopo l'avvio: deve gia' risultare in corso,
+    altrimenti smette di aggiornarsi credendo il lavoro concluso."""
+    assert backfill.start_backfill(download_repo)
+    assert backfill.get_status()["running"] is True
+    await backfill._task
+    status = backfill.get_status()
+    assert status["running"] is False and status["total"] == 0
+
+
+def test_frontend_files_are_always_revalidated(client):
+    """Senza Cache-Control il browser puo' servire un app.js vecchio dopo un
+    aggiornamento (HTML nuovo + JS vecchio = pulsanti senza effetto)."""
+    for path in ("/", "/app.js", "/style.css", "/sw.js"):
+        res = client.get(path)
+        assert res.status_code == 200, path
+        assert res.headers["cache-control"] == "no-cache", path

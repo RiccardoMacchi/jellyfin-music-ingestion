@@ -4,8 +4,14 @@
  * (analisi, download, cancellazioni e soprattutto lo stream SSE /api/events)
  * deve andare sempre in rete, senza cache, altrimenti la UI mostrerebbe dati
  * vecchi. Qui mettiamo in cache SOLO il guscio statico (HTML/CSS/JS/icone),
- * per avvio rapido e per un fallback offline della pagina. */
-const CACHE = "jmi-shell-v2";
+ * come fallback offline della pagina.
+ *
+ * Strategia NETWORK-FIRST per tutto il guscio: HTML, JS e CSS devono sempre
+ * arrivare dalla stessa versione dell'app. Con il vecchio cache-first per
+ * JS/CSS, dopo un aggiornamento l'HTML era nuovo ma app.js vecchio: campi e
+ * pulsanti nuovi visibili ma senza alcun effetto. La cache serve solo se la
+ * rete non risponde. */
+const CACHE = "jmi-shell-v3";
 const SHELL = [
   "/",
   "/index.html",
@@ -19,7 +25,11 @@ const SHELL = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())
+    caches
+      .open(CACHE)
+      // cache: "reload" -> scavalca la cache HTTP del browser, mai file vecchi
+      .then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: "reload" }))))
+      .then(() => self.skipWaiting())
   );
 });
 
@@ -41,25 +51,19 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api")) return;
 
-  // Navigazioni: prima la rete (dati freschi), fallback alla shell se offline.
-  if (req.mode === "navigate") {
-    event.respondWith(fetch(req).catch(() => caches.match("/index.html")));
-    return;
-  }
-
-  // Asset statici: cache-first, con aggiornamento in background (stale-while-revalidate).
+  // Prima la rete (rivalidata col server: "no-cache" usa ETag -> 304 se il
+  // file non e' cambiato), poi la cache solo se offline.
   event.respondWith(
-    caches.match(req).then((cached) => {
-      const network = fetch(req)
-        .then((res) => {
-          if (res && res.ok && res.type === "basic") {
-            const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(req, copy));
-          }
-          return res;
-        })
-        .catch(() => cached);
-      return cached || network;
-    })
+    fetch(req, { cache: "no-cache" })
+      .then((res) => {
+        if (res && res.ok && res.type === "basic") {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(req, copy));
+        }
+        return res;
+      })
+      .catch(() =>
+        caches.match(req).then((cached) => cached || (req.mode === "navigate" ? caches.match("/index.html") : undefined))
+      )
   );
 });
