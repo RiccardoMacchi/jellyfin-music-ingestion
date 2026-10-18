@@ -5,7 +5,7 @@
  * deve andare sempre in rete, senza cache, altrimenti la UI mostrerebbe dati
  * vecchi. Qui mettiamo in cache SOLO il guscio statico (HTML/CSS/JS/icone),
  * per avvio rapido e per un fallback offline della pagina. */
-const CACHE = "jmi-shell-v1";
+const CACHE = "jmi-shell-v2";
 const SHELL = [
   "/",
   "/index.html",

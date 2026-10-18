@@ -16,7 +16,9 @@ from backend.cover.cover_manager import CoverError, find_downloaded_thumbnail, n
 from backend.database.models import DownloadRecord, DownloadStatus
 from backend.database.repository import DownloadRepository
 from backend.downloader.ytdlp_client import DownloadError, download_audio
+from backend.genre.detector import detect_genre, primary_artist
 from backend.jellyfin.client import trigger_library_refresh
+from backend.jellyfin.playlists import schedule_playlist_sync
 from backend.library.mover import MoveError, atomic_move, copy_cover_if_needed
 from backend.library.path_builder import build_library_path
 from backend.library.validator import ValidationError, validate_audio_file, validate_cover_file
@@ -109,7 +111,11 @@ async def process_job(record: DownloadRecord, repo: DownloadRepository) -> None:
         audio_ext = settings.audio_format
         tmp_converted_path = f"{tmp_dir}/{stem}.converted.{audio_ext}"
 
-        await convert_audio(downloaded_raw_path, tmp_converted_path, audio_ext)
+        await convert_audio(
+            downloaded_raw_path, tmp_converted_path, audio_ext,
+            trim_start=record.trim_start_seconds or 0,
+            trim_end=record.trim_end_seconds or 0,
+        )
 
         cover_bytes: bytes | None = None
         thumb_source = find_downloaded_thumbnail(tmp_dir, stem)
@@ -120,6 +126,13 @@ async def process_job(record: DownloadRecord, repo: DownloadRepository) -> None:
             except CoverError as exc:
                 logger.warning("Cover scartata per job %s: %s", download_id, exc)
                 cover_bytes = None
+
+        if not metadata.genre and settings.genre_autodetect:
+            # Best-effort: detect_genre non solleva mai, al peggio niente genere.
+            genre = await detect_genre(primary_artist(record.artist, record.album_artist), record.title)
+            if genre:
+                metadata.genre = genre.genre
+                repo.update_metadata(download_id, genre=genre.genre, genre_source=genre.source)
 
         await asyncio.to_thread(write_tags, tmp_converted_path, metadata, cover_bytes)
 
@@ -134,7 +147,7 @@ async def process_job(record: DownloadRecord, repo: DownloadRepository) -> None:
             event_bus.publish(download_id)
             return
 
-        await validate_audio_file(tmp_converted_path, audio_ext)
+        probe = await validate_audio_file(tmp_converted_path, audio_ext)
         if cover_bytes:
             validate_cover_file(tmp_cover_path)
 
@@ -147,10 +160,15 @@ async def process_job(record: DownloadRecord, repo: DownloadRepository) -> None:
             written_cover_path = album_cover_path
 
         repo.set_file_path(download_id, file_path, written_cover_path)
+        final_duration = float(probe.get("format", {}).get("duration") or 0)
+        if final_duration > 0:
+            repo.update_metadata(download_id, duration_seconds=round(final_duration))
         repo.update_status(download_id, DownloadStatus.COMPLETED)
         event_bus.publish(download_id)
 
         await trigger_library_refresh()
+        if metadata.genre:
+            schedule_playlist_sync(repo)
 
     except JobCancelled:
         repo.update_status(download_id, DownloadStatus.CANCELLED, error="Annullato dall'utente")

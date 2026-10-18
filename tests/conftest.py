@@ -15,6 +15,23 @@ from backend.database.db import Database  # noqa: E402
 from backend.database.repository import DownloadRepository, PlaylistRepository  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _no_network_genre_lookup(monkeypatch):
+    """Il riconoscimento automatico del genere interroga servizi esterni:
+    disattivato di default nei test (i test del genere lo riattivano e
+    mockano l'HTTP)."""
+    monkeypatch.setattr(settings, "genre_autodetect", False)
+    monkeypatch.setattr(settings, "jellyfin_enabled", False)
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    """Il rate limiter e' in-memory e globale al processo: senza reset i test
+    API successivi ai primi 30 riceverebbero 429."""
+    from backend.security import rate_limit
+    rate_limit._hits.clear()
+
+
 @pytest.fixture()
 def configured_dirs(tmp_path, monkeypatch):
     """Punta MUSIC_DIR/DATA_DIR/DOWNLOAD_DIR a directory temporanee isolate

@@ -38,6 +38,10 @@ CREATE TABLE IF NOT EXISTS downloads (
     year INTEGER,
     genre TEXT NOT NULL DEFAULT '',
     composer TEXT NOT NULL DEFAULT '',
+    genre_source TEXT NOT NULL DEFAULT '',
+
+    trim_start_seconds REAL NOT NULL DEFAULT 0,
+    trim_end_seconds REAL NOT NULL DEFAULT 0,
 
     source_type TEXT NOT NULL DEFAULT 'single',
     playlist_id INTEGER,
@@ -71,6 +75,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_downloads_dedupe
     WHERE status NOT IN ('FAILED', 'CANCELLED');
 """
 
+# Colonne aggiunte dopo la prima versione dello schema: `CREATE TABLE IF NOT
+# EXISTS` non le aggiunge a un DB gia' esistente, quindi le aggiungiamo qui
+# con ALTER TABLE (idempotente: solo se mancano).
+_ADDED_COLUMNS = {
+    "downloads": [
+        ("genre_source", "TEXT NOT NULL DEFAULT ''"),
+        ("trim_start_seconds", "REAL NOT NULL DEFAULT 0"),
+        ("trim_end_seconds", "REAL NOT NULL DEFAULT 0"),
+    ],
+}
+
 _write_lock = threading.Lock()
 
 
@@ -96,6 +111,11 @@ class Database:
         with _write_lock:
             conn = self._connect()
             conn.executescript(_SCHEMA)
+            for table, columns in _ADDED_COLUMNS.items():
+                existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+                for name, ddl in columns:
+                    if name not in existing:
+                        conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
             conn.commit()
 
     @contextmanager

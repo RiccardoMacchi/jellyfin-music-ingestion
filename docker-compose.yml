@@ -19,6 +19,9 @@ services:
       - JELLYFIN_ENABLED=false
       - JELLYFIN_URL=
       - JELLYFIN_API_KEY=
+      - JELLYFIN_USER=
+      - GENRE_AUTODETECT=true
+      - GENRE_PLAYLISTS_ENABLED=true
       - TZ=Europe/Rome
     volumes:
       - ./music:/music

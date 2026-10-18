@@ -99,12 +99,23 @@
     $("#f-track").value = "";
     $("#f-disc").value = "";
     $("#f-year").value = "";
-    $("#f-genre").value = "";
+    $("#f-genre").value = p.suggested_genre || "";
+    $("#f-genre-source").textContent = p.suggested_genre ? `(suggerito da ${sourceLabel(p.suggested_genre_source)})` : "";
     $("#f-composer").value = "";
     $("#f-compilation").checked = false;
+    $("#f-trim-start").value = "";
+    $("#f-trim-end").value = "";
+    updatePreviewTrimHint();
     $("#preview-panel").hidden = false;
     $("#preview-panel").scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
+
+  function updatePreviewTrimHint() {
+    return readTrim($("#f-trim-start"), $("#f-trim-end"),
+      lastAnalyzed && lastAnalyzed.duration_seconds, $("#f-trim-hint"));
+  }
+  $("#f-trim-start").addEventListener("input", updatePreviewTrimHint);
+  $("#f-trim-end").addEventListener("input", updatePreviewTrimHint);
 
   $("#preview-cancel").addEventListener("click", () => {
     $("#preview-panel").hidden = true;
@@ -113,6 +124,8 @@
 
   $("#preview-download").addEventListener("click", async () => {
     if (!lastAnalyzed) return;
+    const trim = updatePreviewTrimHint();
+    if (!trim) return;
     const btn = $("#preview-download");
     btn.disabled = true;
     try {
@@ -130,10 +143,16 @@
           disc_number: numOrNull($("#f-disc").value),
           year: numOrNull($("#f-year").value),
           genre: $("#f-genre").value.trim(),
+          // Genere suggerito e lasciato invariato -> resta "automatico",
+          // cosi' un futuro ricalcolo potra' aggiornarlo; se modificato e' manuale.
+          genre_source: $("#f-genre").value.trim() && $("#f-genre").value.trim() === lastAnalyzed.suggested_genre
+            ? lastAnalyzed.suggested_genre_source : undefined,
           composer: $("#f-composer").value.trim(),
           is_compilation: $("#f-compilation").checked,
           thumbnail_url: lastAnalyzed.thumbnail_url,
           duration_seconds: lastAnalyzed.duration_seconds,
+          trim_start_seconds: trim.start,
+          trim_end_seconds: trim.end,
         }),
       });
       $("#preview-panel").hidden = true;
@@ -146,6 +165,54 @@
       btn.disabled = false;
     }
   });
+
+  // "83", "83.5", "1:23", "1:02:03" -> secondi. "" -> 0. Non valido -> NaN.
+  function parseTime(v) {
+    const s = String(v || "").trim().replace(",", ".");
+    if (!s) return 0;
+    if (!/^\d+(\.\d+)?$|^\d+(:\d{1,2}){1,2}(\.\d+)?$/.test(s)) return NaN;
+    return s.split(":").reduce((acc, part) => acc * 60 + Number(part), 0);
+  }
+
+  function formatTime(sec) {
+    if (sec === null || sec === undefined || !Number.isFinite(sec)) return "";
+    const total = Math.max(0, Math.round(sec));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = String(total % 60).padStart(2, "0");
+    return h ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+  }
+
+  // Valida i due campi di taglio rispetto alla durata e scrive l'esito in
+  // `hintEl`. Ritorna {start, end} oppure null se i valori non sono validi.
+  const MIN_REMAINING_SECONDS = 5;
+  function readTrim(startInput, endInput, duration, hintEl) {
+    const start = parseTime(startInput.value);
+    const end = parseTime(endInput.value);
+    hintEl.classList.remove("error");
+    if (Number.isNaN(start) || Number.isNaN(end)) {
+      hintEl.textContent = "Formato non valido: usa secondi (es. 12) oppure m:ss (es. 1:05).";
+      hintEl.classList.add("error");
+      return null;
+    }
+    if (duration && duration - start - end < MIN_REMAINING_SECONDS) {
+      hintEl.textContent = `Taglio troppo lungo: il brano dura ${formatTime(duration)}.`;
+      hintEl.classList.add("error");
+      return null;
+    }
+    if (!start && !end) {
+      hintEl.textContent = duration ? `Durata: ${formatTime(duration)}` : "";
+    } else if (duration) {
+      hintEl.textContent = `Durata: ${formatTime(duration)} → ${formatTime(duration - start - end)} dopo il taglio`;
+    } else {
+      hintEl.textContent = "";
+    }
+    return { start, end };
+  }
+
+  function sourceLabel(source) {
+    return { deezer: "Deezer", musicbrainz: "MusicBrainz", manual: "te" }[source] || source;
+  }
 
   function numOrNull(v) {
     if (v === "" || v === null || v === undefined) return null;
@@ -326,7 +393,9 @@
     source.addEventListener("update", (ev) => {
       try {
         const data = JSON.parse(ev.data);
+        const before = $("#queue-count").textContent;
         renderQueue(data.downloads || []);
+        if ($("#queue-count").textContent !== before) loadGenres();
         // Un job puo' essere appena uscito dagli stati attivi (completato/fallito):
         // aggiorniamo anche la cronologia se e' la tab corrente.
         loadHistory(currentHistoryStatus);
@@ -352,7 +421,16 @@
     loadHistory(currentHistoryStatus);
   });
 
+  // Mentre un editor in linea e' aperto, gli aggiornamenti live (SSE) NON
+  // ridisegnano la tabella: si perderebbero i valori digitati e il focus.
+  let openEditorId = null;
+  let historyReloadPending = false;
+
   async function loadHistory(status) {
+    if (openEditorId !== null) {
+      historyReloadPending = true;
+      return;
+    }
     try {
       const qs = status ? `?status=${encodeURIComponent(status)}` : "";
       const all = await fetchJSON(`/api/downloads${qs}`);
@@ -373,11 +451,19 @@
 
       const tdTrack = document.createElement("td");
       tdTrack.appendChild(el("span", "htitle", d.title || d.url));
-      if (d.artist) tdTrack.appendChild(el("span", "hartist", d.artist));
+      const details = [d.artist, formatTime(d.duration_seconds)].filter(Boolean);
+      const trimmed = (d.trim_start_seconds || 0) + (d.trim_end_seconds || 0);
+      if (trimmed && d.status === "COMPLETED") details.push(`tagliati ${formatTime(trimmed)}`);
+      if (details.length) tdTrack.appendChild(el("span", "hartist", details.join(" · ")));
       if (d.error) tdTrack.appendChild(el("div", "herror", d.error));
 
       const tdAlbum = document.createElement("td");
-      tdAlbum.textContent = d.album || "—";
+      tdAlbum.appendChild(el("span", "", d.album || "—"));
+      if (d.genre) {
+        const chip = el("span", "genre-chip small", d.genre);
+        chip.title = d.genre_source ? `Genere da ${sourceLabel(d.genre_source)}` : "";
+        tdAlbum.appendChild(chip);
+      }
 
       const tdStatus = document.createElement("td");
       tdStatus.appendChild(el("span", `status-tag ${d.status}`, d.status));
@@ -391,6 +477,11 @@
           loadHistory(currentHistoryStatus);
         });
         tdActions.appendChild(retryBtn);
+      }
+      if (d.status === "COMPLETED") {
+        const editBtn = el("button", "btn btn-ghost btn-sm", "Modifica");
+        editBtn.addEventListener("click", () => toggleEditor(tr, d));
+        tdActions.appendChild(editBtn);
       }
       const delBtn = el("button", "btn btn-ghost btn-sm", "Elimina");
       delBtn.addEventListener("click", async () => {
@@ -412,11 +503,228 @@
     });
   }
 
+  function closeEditor() {
+    document.querySelectorAll(".editor-row").forEach((n) => n.remove());
+    openEditorId = null;
+    if (historyReloadPending) {
+      historyReloadPending = false;
+      loadHistory(currentHistoryStatus);
+    }
+  }
+
+  function toggleEditor(tr, d) {
+    const wasOpen = openEditorId === d.id;
+    closeEditor();
+    if (wasOpen) return;
+    openEditorId = d.id;
+
+    const row = el("tr", "editor-row");
+    const td = document.createElement("td");
+    td.colSpan = 4;
+    const box = el("div", "editor");
+
+    // --- genere
+    const genreRow = el("div", "editor-inline");
+    const genreField = el("div", "field");
+    const genreLabel = el("label", "", "Genere");
+    genreLabel.htmlFor = `genre-${d.id}`;
+    const genreInput = document.createElement("input");
+    genreInput.type = "text";
+    genreInput.id = `genre-${d.id}`;
+    genreInput.value = d.genre || "";
+    genreInput.setAttribute("list", "genre-options");
+    genreField.append(genreLabel, genreInput);
+    const genreBtn = el("button", "btn btn-ghost btn-sm", "Salva genere");
+    const genreHint = el("p", "field-hint");
+    genreBtn.addEventListener("click", async () => {
+      genreBtn.disabled = true;
+      genreHint.classList.remove("error");
+      try {
+        const updated = await fetchJSON(`/api/downloads/${d.id}/genre`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ genre: genreInput.value.trim() }),
+        });
+        d.genre = updated.genre;
+        d.genre_source = updated.genre_source;
+        genreHint.textContent = updated.genre ? `Genere salvato: ${updated.genre}` : "Genere rimosso";
+        historyReloadPending = true;
+        loadGenres();
+      } catch (err) {
+        genreHint.textContent = err.message;
+        genreHint.classList.add("error");
+      } finally {
+        genreBtn.disabled = false;
+      }
+    });
+    genreRow.append(genreField, genreBtn);
+
+    const fields = el("div", "field-row");
+    const mkField = (labelText, id) => {
+      const f = el("div", "field");
+      const label = el("label", "", labelText);
+      label.htmlFor = id;
+      const input = document.createElement("input");
+      input.type = "text";
+      input.id = id;
+      input.inputMode = "decimal";
+      input.placeholder = "0";
+      f.append(label, input);
+      fields.appendChild(f);
+      return input;
+    };
+    const startInput = mkField("Taglia inizio (s o m:ss)", `trim-start-${d.id}`);
+    const endInput = mkField("Taglia fine (s o m:ss)", `trim-end-${d.id}`);
+
+    const hint = el("p", "field-hint");
+    const update = () => readTrim(startInput, endInput, d.duration_seconds, hint);
+    startInput.addEventListener("input", update);
+    endInput.addEventListener("input", update);
+    update();
+
+    const note = el("p", "field-hint", "Il taglio modifica il file in libreria (senza ricompressione) e non si può annullare.");
+    const actions = el("div", "editor-actions");
+    const cancelBtn = el("button", "btn btn-ghost btn-sm", "Chiudi");
+    cancelBtn.addEventListener("click", closeEditor);
+    const applyBtn = el("button", "btn btn-accent btn-sm", "Applica taglio");
+    applyBtn.addEventListener("click", async () => {
+      const trim = update();
+      if (!trim) return;
+      if (!trim.start && !trim.end) {
+        hint.textContent = "Indica almeno un taglio all'inizio o alla fine.";
+        hint.classList.add("error");
+        return;
+      }
+      applyBtn.disabled = true;
+      applyBtn.textContent = "Taglio…";
+      try {
+        await fetchJSON(`/api/downloads/${d.id}/trim`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ trim_start_seconds: trim.start, trim_end_seconds: trim.end }),
+        });
+        historyReloadPending = true;
+        closeEditor();
+      } catch (err) {
+        hint.textContent = err.message;
+        hint.classList.add("error");
+        applyBtn.disabled = false;
+        applyBtn.textContent = "Applica taglio";
+      }
+    });
+    actions.append(cancelBtn, applyBtn);
+
+    box.append(genreRow, genreHint, fields, hint, note, actions);
+    td.appendChild(box);
+    row.appendChild(td);
+    tr.after(row);
+    startInput.focus();
+  }
+
+  // ------------------------------------------------------------------
+  // Generi & playlist
+  // ------------------------------------------------------------------
+  let genrePollTimer = null;
+
+  async function loadGenres() {
+    let data;
+    try {
+      data = await fetchJSON("/api/genres");
+    } catch (err) {
+      console.error(err);
+      return;
+    }
+
+    const chips = $("#genre-chips");
+    chips.innerHTML = "";
+    data.genres.forEach((g) => {
+      const chip = el("span", "genre-chip", g.genre);
+      chip.appendChild(el("span", "genre-chip-count", String(g.count)));
+      chips.appendChild(chip);
+    });
+    $("#genre-count").textContent = String(data.genres.length);
+
+    const options = $("#genre-options");
+    options.innerHTML = "";
+    data.genres.forEach((g) => {
+      const o = document.createElement("option");
+      o.value = g.genre;
+      options.appendChild(o);
+    });
+
+    $("#genre-summary").textContent = data.untagged
+      ? `${data.untagged} brani in libreria senza genere.`
+      : (data.genres.length ? "Tutti i brani in libreria hanno un genere." : "");
+
+    const syncBtn = $("#playlist-sync");
+    syncBtn.disabled = !data.playlists_available;
+    syncBtn.title = data.playlists_available
+      ? `Crea/aggiorna su Jellyfin le playlist "${data.playlist_prefix}<genere>"`
+      : "Configura JELLYFIN_ENABLED, JELLYFIN_URL e JELLYFIN_API_KEY per creare le playlist";
+
+    const b = data.backfill;
+    const detectBtn = $("#genre-detect");
+    detectBtn.disabled = b.running;
+    if (b.running) {
+      setGenreStatus(`Riconoscimento in corso: ${b.processed}/${b.total}${b.current ? ` — ${b.current}` : ""}`);
+      if (!genrePollTimer) genrePollTimer = setInterval(loadGenres, 3000);
+    } else {
+      if (genrePollTimer) {
+        clearInterval(genrePollTimer);
+        genrePollTimer = null;
+        setGenreStatus(`Riconoscimento completato: ${b.updated} aggiornati, ${b.not_found} non trovati` +
+          (b.errors ? `, ${b.errors} errori` : "") + ".");
+        loadHistory(currentHistoryStatus);
+      }
+    }
+  }
+
+  function setGenreStatus(msg, isError) {
+    const s = $("#genre-status");
+    s.textContent = msg;
+    s.classList.toggle("error", !!isError);
+  }
+
+  $("#genre-detect").addEventListener("click", async () => {
+    try {
+      await fetchJSON("/api/genres/detect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force: $("#genre-force").checked }),
+      });
+      setGenreStatus("Riconoscimento avviato…");
+      if (!genrePollTimer) genrePollTimer = setInterval(loadGenres, 3000);
+      loadGenres();
+    } catch (err) {
+      setGenreStatus(err.message, true);
+    }
+  });
+
+  $("#playlist-sync").addEventListener("click", async () => {
+    const btn = $("#playlist-sync");
+    btn.disabled = true;
+    setGenreStatus("Sincronizzazione playlist in corso…");
+    try {
+      const r = await fetchJSON("/api/playlists/sync", { method: "POST" });
+      const parts = [`${Object.keys(r.playlists).length} playlist`];
+      if (r.created.length) parts.push(`${r.created.length} create`);
+      if (r.added || r.removed) parts.push(`+${r.added} / −${r.removed} brani`);
+      let msg = `Playlist sincronizzate: ${parts.join(", ")}.`;
+      if (r.not_indexed) msg += ` ${r.not_indexed} brani non ancora indicizzati da Jellyfin: riprova tra qualche minuto.`;
+      setGenreStatus(msg);
+    } catch (err) {
+      setGenreStatus(err.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   // ------------------------------------------------------------------
   // Init
   // ------------------------------------------------------------------
   loadSystemInfo();
   refreshQueue();
   loadHistory("");
+  loadGenres();
   connectEvents();
 })();

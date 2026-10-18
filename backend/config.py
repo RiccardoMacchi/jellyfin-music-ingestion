@@ -65,6 +65,28 @@ class Settings(BaseSettings):
     jellyfin_enabled: bool = False
     jellyfin_url: str = ""
     jellyfin_api_key: str = ""
+    # Utente Jellyfin proprietario delle playlist per genere. Vuoto = primo
+    # amministratore del server.
+    jellyfin_user: str = ""
+
+    # Riconoscimento automatico del genere (artista + titolo -> genere) per i
+    # nuovi download, quando il genere non e' indicato a mano.
+    genre_autodetect: bool = True
+    # Provider interrogati in ordine, separati da virgola: deezer, musicbrainz.
+    # Entrambi gratuiti e senza API key.
+    genre_providers: str = "deezer,musicbrainz"
+    # Contatto (email o URL) nello User-Agent verso MusicBrainz, come chiede
+    # la loro policy. Facoltativo ma consigliato.
+    musicbrainz_contact: str = ""
+
+    # Playlist per genere in Jellyfin (richiede JELLYFIN_ENABLED=true).
+    genre_playlists_enabled: bool = True
+    genre_playlist_prefix: str = "Genere: "
+    # Un genere con meno brani di cosi' non genera (ancora) una playlist.
+    genre_playlist_min_tracks: int = 1
+    # Attesa dopo un download prima di sincronizzare le playlist: Jellyfin
+    # deve prima aver scansionato il nuovo file.
+    genre_playlist_sync_delay_seconds: int = 90
 
     tz: str = "Europe/Rome"
 

@@ -15,7 +15,8 @@ from backend.api.schemas import (
 from backend.config import settings
 from backend.downloader.validator import is_playlist_url
 from backend.downloader.ytdlp_client import DownloadError, extract_playlist_info, extract_video_info
-from backend.metadata.parser import parse_title
+from backend.genre.detector import detect_genre
+from backend.metadata.parser import clean_channel_name, parse_title
 from backend.security.rate_limit import rate_limiter
 
 router = APIRouter(prefix="/api", tags=["analyze"], dependencies=[Depends(rate_limiter)])
@@ -29,20 +30,34 @@ async def analyze(payload: AnalyzeRequest) -> AnalyzeResponse:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     parsed = parse_title(info.title, channel_name=info.uploader)
+    fallback_artist = clean_channel_name(info.uploader)
+
+    # Suggerimento del genere gia' in anteprima, cosi' l'utente puo'
+    # correggerlo prima di scaricare. Best-effort e con un tetto di tempo:
+    # l'analisi non deve diventare lenta se un provider non risponde.
+    genre = None
+    artist_for_genre = parsed.artist or fallback_artist
+    if settings.genre_autodetect and artist_for_genre:
+        try:
+            genre = await asyncio.wait_for(detect_genre(artist_for_genre, parsed.title), timeout=8)
+        except asyncio.TimeoutError:
+            genre = None
 
     return AnalyzeResponse(
         youtube_id=info.id,
         url=info.webpage_url,
         raw_title=info.title,
         suggested_title=parsed.title,
-        suggested_artist=parsed.artist or info.uploader,
-        suggested_album_artist=parsed.artist or info.uploader,
+        suggested_artist=parsed.artist or fallback_artist,
+        suggested_album_artist=parsed.artist or fallback_artist,
         featured_artists=parsed.featured_artists or [],
         duration_seconds=info.duration,
         thumbnail_url=info.thumbnail,
         channel=info.uploader,
         is_playlist=is_playlist_url(payload.url),
         parsing_confident=parsed.confident,
+        suggested_genre=genre.genre if genre else "",
+        suggested_genre_source=genre.source if genre else "",
     )
 
 

@@ -386,6 +386,48 @@ input:focus-visible, button:focus-visible, .tab:focus-visible {
 .history-table .htitle { font-weight: 600; }
 .history-table .hartist { color: var(--text-faint); font-size: 12px; display: block; }
 .history-table .herror { color: var(--error); font-size: 11.5px; margin-top: 2px; }
+.history-table td:last-child { white-space: nowrap; text-align: right; }
+.history-table .editor-row td { padding: 0 6px 12px; text-align: left; white-space: normal; }
+.editor {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.editor-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+.editor-inline { display: flex; gap: 8px; align-items: flex-end; }
+
+.genre-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.genre-chips:empty { display: none; }
+.genre-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--info);
+  background: var(--info-soft);
+}
+.genre-chip.small { display: table; margin-top: 4px; padding: 2px 8px; font-size: 11px; }
+.genre-chip-count { font-family: var(--font-mono); color: var(--text-dim); font-size: 11px; }
+.genre-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 10px 0 6px;
+}
+.genre-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.field-hint { margin: 0; font-size: 12px; color: var(--text-faint); min-height: 1em; }
+.field-hint:empty { display: none; }
+.field-hint.error { color: var(--error); }
 
 /* ---------------- footer ---------------- */
 .foot {
@@ -403,6 +445,8 @@ input:focus-visible, button:focus-visible, .tab:focus-visible {
   .hero-row { flex-direction: column; }
   .field-row { flex-direction: column; }
   .field.small { max-width: none; }
+  .editor-inline { flex-direction: column; align-items: stretch; }
+  .history-table td:last-child { text-align: left; white-space: normal; }
   .history-table thead { display: none; }
   .history-table, .history-table tbody, .history-table tr, .history-table td { display: block; width: 100%; }
   .history-table tr { border-bottom: 1px solid var(--border); padding: 8px 0; }

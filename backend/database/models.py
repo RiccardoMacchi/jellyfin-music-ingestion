@@ -43,6 +43,15 @@ class DownloadRecord:
     year: Optional[int] = None
     genre: str = ""
     composer: str = ""
+    # Da dove arriva il genere: "manual" (utente), nome del provider
+    # (es. "deezer", "musicbrainz") o "" se non ancora determinato.
+    genre_source: str = ""
+
+    # Secondi da tagliare (job in coda) o gia' tagliati in totale rispetto
+    # all'audio originale (job completati). Servono a togliere intro/outro
+    # dei video musicali.
+    trim_start_seconds: float = 0.0
+    trim_end_seconds: float = 0.0
 
     source_type: str = "single"  # single | playlist_item
     playlist_id: Optional[int] = None

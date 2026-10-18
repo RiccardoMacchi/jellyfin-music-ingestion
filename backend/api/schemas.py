@@ -7,6 +7,9 @@ from pydantic import BaseModel, Field, field_validator
 
 from backend.downloader.validator import InvalidURLError, validate_youtube_url
 
+# Limite di sicurezza per un singolo taglio (30 minuti)
+MAX_TRIM_SECONDS = 1800
+
 
 class AnalyzeRequest(BaseModel):
     url: str
@@ -33,6 +36,8 @@ class AnalyzeResponse(BaseModel):
     channel: str = ""
     is_playlist: bool = False
     parsing_confident: bool = False
+    suggested_genre: str = ""
+    suggested_genre_source: str = ""
 
 
 class PlaylistAnalyzeRequest(BaseModel):
@@ -72,6 +77,9 @@ class DownloadCreateRequest(BaseModel):
     disc_number: Optional[int] = None
     year: Optional[int] = None
     genre: Optional[str] = ""
+    # Provenienza del genere: il provider se l'utente ha confermato il
+    # genere suggerito dall'analisi, altrimenti "manual".
+    genre_source: Optional[str] = None
     composer: Optional[str] = ""
     is_compilation: bool = False
 
@@ -80,6 +88,10 @@ class DownloadCreateRequest(BaseModel):
     position_in_playlist: Optional[int] = None
     thumbnail_url: Optional[str] = ""
     duration_seconds: Optional[int] = None
+
+    # Secondi da tagliare all'inizio/alla fine (intro/outro del video)
+    trim_start_seconds: float = Field(default=0, ge=0, le=MAX_TRIM_SECONDS)
+    trim_end_seconds: float = Field(default=0, ge=0, le=MAX_TRIM_SECONDS)
 
     @field_validator("url")
     @classmethod
@@ -97,6 +109,45 @@ class DownloadCreateRequest(BaseModel):
         return v
 
 
+GENRE_SOURCES = {"manual", "deezer", "musicbrainz"}
+
+
+class GenreUpdateRequest(BaseModel):
+    genre: str = Field(default="", max_length=60)
+
+
+class GenreDetectRequest(BaseModel):
+    # True = ricalcola anche i generi gia' presenti (mai quelli manuali)
+    force: bool = False
+
+
+class GenreCount(BaseModel):
+    genre: str
+    count: int
+
+
+class GenreOverview(BaseModel):
+    genres: list[GenreCount]
+    untagged: int
+    backfill: dict
+    playlists_available: bool
+    playlist_prefix: str
+
+
+class PlaylistSyncResponse(BaseModel):
+    created: list[str]
+    updated: list[str]
+    added: int
+    removed: int
+    not_indexed: int
+    playlists: dict[str, int]
+
+
+class TrimRequest(BaseModel):
+    trim_start_seconds: float = Field(default=0, ge=0, le=MAX_TRIM_SECONDS)
+    trim_end_seconds: float = Field(default=0, ge=0, le=MAX_TRIM_SECONDS)
+
+
 class DownloadOut(BaseModel):
     id: int
     youtube_id: str
@@ -110,6 +161,9 @@ class DownloadOut(BaseModel):
     year: Optional[int]
     genre: str
     composer: str
+    genre_source: str
+    trim_start_seconds: float
+    trim_end_seconds: float
     source_type: str
     playlist_id: Optional[int]
     position_in_playlist: Optional[int]

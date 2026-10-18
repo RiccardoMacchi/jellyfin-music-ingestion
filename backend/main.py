@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from backend.api.routes_analyze import router as analyze_router
 from backend.api.routes_downloads import router as downloads_router
 from backend.api.routes_events import router as events_router
+from backend.api.routes_genres import router as genres_router
 from backend.api.routes_health import router as health_router
 from backend.config import settings
 from backend.database.db import Database
@@ -82,6 +83,7 @@ app.include_router(health_router)
 app.include_router(analyze_router)
 app.include_router(downloads_router)
 app.include_router(events_router)
+app.include_router(genres_router)
 
 if FRONTEND_DIR.exists():
     app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")

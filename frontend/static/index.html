@@ -73,9 +73,14 @@
           <div class="field small"><label>Anno</label><input id="f-year" type="number" min="1900" max="2100" /></div>
         </div>
         <div class="field-row">
-          <div class="field"><label>Genere</label><input id="f-genre" type="text" /></div>
+          <div class="field"><label for="f-genre">Genere <span class="optional" id="f-genre-source"></span></label><input id="f-genre" type="text" list="genre-options" /></div>
           <div class="field"><label>Compositore</label><input id="f-composer" type="text" /></div>
         </div>
+        <div class="field-row">
+          <div class="field"><label for="f-trim-start">Taglia inizio <span class="optional">(secondi o m:ss)</span></label><input id="f-trim-start" type="text" inputmode="decimal" placeholder="0" /></div>
+          <div class="field"><label for="f-trim-end">Taglia fine <span class="optional">(secondi o m:ss)</span></label><input id="f-trim-end" type="text" inputmode="decimal" placeholder="0" /></div>
+        </div>
+        <p class="field-hint" id="f-trim-hint"></p>
         <label class="checkbox"><input id="f-compilation" type="checkbox" /> Compilation (Various Artists)</label>
       </div>
     </div>
@@ -114,6 +119,25 @@
     </ul>
   </section>
 
+  <!-- GENERI & PLAYLIST -->
+  <section class="panel" aria-label="Generi e playlist">
+    <div class="section-head">
+      <h2>Generi &amp; playlist</h2>
+      <span class="count-badge" id="genre-count">0</span>
+    </div>
+    <div class="genre-chips" id="genre-chips"></div>
+    <p class="field-hint" id="genre-summary"></p>
+    <div class="genre-actions">
+      <label class="checkbox"><input id="genre-force" type="checkbox" /> Ricalcola anche i generi già presenti (mai quelli inseriti a mano)</label>
+      <div class="genre-buttons">
+        <button class="btn btn-ghost btn-sm" id="genre-detect">Riconosci generi</button>
+        <button class="btn btn-ghost btn-sm" id="playlist-sync">Sincronizza playlist Jellyfin</button>
+      </div>
+    </div>
+    <p class="field-hint" id="genre-status"></p>
+  </section>
+  <datalist id="genre-options"></datalist>
+
   <!-- HISTORY -->
   <section class="panel" aria-label="Libreria e cronologia">
     <div class="section-head">
@@ -127,7 +151,7 @@
     </div>
     <table class="history-table">
       <thead>
-        <tr><th>Brano</th><th>Album</th><th>Stato</th><th></th></tr>
+        <tr><th>Brano</th><th>Album / genere</th><th>Stato</th><th></th></tr>
       </thead>
       <tbody id="history-body"></tbody>
     </table>

@@ -24,6 +24,9 @@ cover → filename → organizzazione → validazione → move atomico → /musi
 - [Volumi](#volumi)
 - [Deploy con Coolify](#deploy-con-coolify)
 - [Integrazione Jellyfin (opzionale)](#integrazione-jellyfin-opzionale)
+- [Pulizia dei titoli YouTube](#pulizia-dei-titoli-youtube)
+- [Taglio di intro e outro](#taglio-di-intro-e-outro)
+- [Generi e playlist per genere](#generi-e-playlist-per-genere)
 - [Variabili d'ambiente](#variabili-dambiente)
 - [API](#api)
 - [Produzione: best practice](#produzione-best-practice)
@@ -42,16 +45,16 @@ mai scritto direttamente** in `/music`: tutto avviene in un'area temporanea
 con un `os.replace` atomico. Se un passaggio fallisce, `/music` resta intatta.
 
 1. **Metadata extraction** — yt-dlp estrae titolo, canale, durata, thumbnail (nessun download).
-2. **Content analysis** — il titolo grezzo (`Artist - Song (Official Video)`) viene analizzato per ricavare artista, titolo ed eventuali `feat.`, **senza inventare** dati quando il pattern non è riconoscibile.
-3. **Preview** — la UI mostra i metadata proposti; puoi correggerli prima di scaricare.
+2. **Content analysis** — il titolo grezzo (`Artist - Song (Official Video)`) viene ripulito dal rumore tipico di YouTube e analizzato per ricavare artista, titolo ed eventuali `feat.`, **senza inventare** dati quando il pattern non è riconoscibile. Viene anche suggerito il **genere** (vedi [Generi](#generi-e-playlist-per-genere)).
+3. **Preview** — la UI mostra i metadata proposti; puoi correggerli prima di scaricare, e indicare quanti secondi **tagliare** all'inizio/alla fine.
 4. **Download** — yt-dlp scarica **solo l'audio** alla miglior qualità sorgente.
-5. **Conversione** — FFmpeg produce il formato finale in **un solo passaggio** (remux senza re-encode quando la sorgente è già AAC → M4A).
+5. **Conversione** — FFmpeg produce il formato finale in **un solo passaggio** (remux senza re-encode quando la sorgente è già AAC → M4A), applicando nello stesso passaggio l'eventuale taglio di intro/outro.
 6. **Tag** — i metadata vengono scritti nel file (m4a/mp3/flac).
 7. **Cover** — la thumbnail viene normalizzata in `cover.jpg`, incorporata nel file e salvata nella cartella dell'album (secondo `COVER_POLICY`).
 8. **Filename & organizzazione** — nome file e percorso derivano dai metadata, con sanitizzazione sicura per Linux.
 9. **Validazione** — FFprobe verifica che il file sia integro, con codec e durata corretti.
 10. **Move atomico** — il file entra in `/music`.
-11. **Refresh Jellyfin** (opzionale) — se configurato, chiede a Jellyfin di riscansionare.
+11. **Refresh Jellyfin** (opzionale) — se configurato, chiede a Jellyfin di riscansionare e, poco dopo, aggiorna le playlist per genere.
 
 ---
 
@@ -214,6 +217,90 @@ file è già in libreria. L'errore viene solo loggato.
 
 ---
 
+## Pulizia dei titoli YouTube
+
+Il parser toglie automaticamente dal titolo ciò che non fa parte del nome del brano:
+
+| Titolo YouTube | Risultato |
+|---|---|
+| `Artist - Song (Official Music Video) [4K]` | `Artist` · `Song` |
+| `Artist - Song (Video Ufficiale)` / `(Testo)` / `(Video Oficial)` / `(Clip Officiel)` | `Artist` · `Song` |
+| `Artist - Song \| Official Video` · `Artist - Song // Lyrics` | `Artist` · `Song` |
+| `Artist - Song (Official Video - Sanremo 2021)` | `Artist` · `Song` |
+| `Artist - Song (Remastered 2011)` · `(HD)` · `(2019)` · `(prod. by X)` · `#shorts` · emoji | `Artist` · `Song` |
+| `Artist - Song (Video Oficial) \| Nome Album` | `Artist` · `Song` |
+| `Artist A ft. Artist B - Song` · `Artist A - Song (feat. Artist B) [Remix]` | `Artist A` · `Song` (+ feat. `Artist B`) |
+| `Artist "Song"` | `Artist` · `Song` |
+| `Song` dal canale `Artist - Topic` (YouTube Music) | `Artist` · `Song` |
+
+Le **indicazioni di versione restano** perché distinguono brani diversi:
+`(Remix)`, `(Live at …)`, `(Acoustic Version)`, `(Extended Mix)`… Se nello
+stesso gruppo c'è anche rumore viene tenuta solo la versione:
+`(Official Live Video)` → `(Live)`. Anche il nome del canale usato come
+ripiego per l'artista viene ripulito (`ArtistVEVO`, `Artist - Topic` → `Artist`).
+
+---
+
+## Taglio di intro e outro
+
+I video musicali hanno spesso intro parlate o code silenziose. Puoi togliere
+**X secondi all'inizio e/o alla fine** (in secondi, es. `12`, o `m:ss`, es. `1:05`):
+
+- **prima del download**, dai campi *Taglia inizio / Taglia fine* dell'anteprima:
+  il taglio avviene nello stesso passaggio FFmpeg della conversione;
+- **su un brano già in libreria**, dal pulsante *Modifica* nella tabella Libreria.
+  Il file viene tagliato **senza ricompressione** (stream copy, precisione di un
+  frame audio, ~20–30 ms), su una copia temporanea a cui vengono ricopiati tutti
+  i tag e la cover; la copia viene validata con FFprobe e solo allora sostituisce
+  l'originale con un move atomico. I tagli successivi si sommano.
+
+Il taglio sui file in libreria è **permanente**. Per sicurezza devono restare
+almeno 5 secondi di audio e ogni taglio è al massimo di 30 minuti.
+
+---
+
+## Generi e playlist per genere
+
+**Riconoscimento automatico.** Per ogni brano il servizio cerca il genere a
+partire da artista + titolo, su servizi gratuiti e **senza API key**:
+
+1. **Deezer** — ottima copertura, anche per la musica italiana; generi larghi assegnati all'album.
+2. **MusicBrainz** (ripiego) — generi votati dalla comunità sul brano o, in mancanza, sull'artista (rispettando il loro limite di 1 richiesta/secondo).
+
+Un risultato viene accettato solo se l'artista coincide e il titolo è simile:
+**se non c'è una corrispondenza affidabile il genere resta vuoto**, non viene
+inventato. I generi vengono normalizzati in un insieme ridotto e stabile
+(`Pop`, `Hip-Hop`, `Rock`, `Electronic`, `Dance`, `R&B`, `Latin`, `Indie`,
+`Alternative`, `Metal`, `Jazz`, `Classical`, `Cantautori`, …): ad esempio
+`Rap/Hip Hop` e `italian trap` diventano entrambi `Hip-Hop`, `french house`
+diventa `Electronic`. Così le playlist restano poche e utili.
+
+- **Nuovi download:** il genere viene suggerito già nell'anteprima (puoi
+  correggerlo); per gli elementi di una playlist YouTube viene cercato durante il
+  download. Un errore dei provider non fa mai fallire un download.
+- **Brani già scaricati:** nel pannello *Generi & playlist* il pulsante
+  *Riconosci generi* elabora in background tutti i brani senza genere (o tutti,
+  con *Ricalcola*), scrivendo il tag direttamente nei file.
+- **A mano:** dal pulsante *Modifica* della libreria. Un genere inserito a mano
+  **non viene mai sovrascritto** dal riconoscimento automatico.
+
+**Playlist su Jellyfin.** Con l'integrazione Jellyfin attiva, per ogni genere
+viene creata/aggiornata una playlist `Genere: <genere>` (prefisso configurabile
+con `GENRE_PLAYLIST_PREFIX`) dell'utente `JELLYFIN_USER` (default: il primo
+amministratore). La sincronizzazione è automatica dopo i download (con un
+ritardo, perché Jellyfin deve prima scansionare il file) e manuale dal pulsante
+*Sincronizza playlist Jellyfin*. È idempotente: aggiunge i brani mancanti e
+toglie quelli che hanno cambiato genere. I file vengono abbinati per percorso
+relativo alla libreria, quindi funziona anche se Jellyfin monta la musica su un
+path diverso da `/music`.
+
+> Le playlist che iniziano col prefisso sono **gestite dall'app**: brani
+> aggiunti a mano lì dentro vengono rimossi alla sincronizzazione successiva.
+> Anche senza playlist, Jellyfin mostra comunque i brani raggruppati nella
+> vista *Generi* della libreria musicale, grazie al tag genere nei file.
+
+---
+
 ## Variabili d'ambiente
 
 | Variabile | Default | Descrizione |
@@ -233,6 +320,14 @@ file è già in libreria. L'errore viene solo loggato.
 | `JELLYFIN_ENABLED` | `false` | Attiva il refresh automatico della libreria Jellyfin. |
 | `JELLYFIN_URL` | *(vuoto)* | URL base di Jellyfin, raggiungibile dal container. |
 | `JELLYFIN_API_KEY` | *(vuoto)* | API key Jellyfin. |
+| `JELLYFIN_USER` | *(vuoto)* | Utente Jellyfin proprietario delle playlist per genere. Vuoto = primo amministratore. |
+| `GENRE_AUTODETECT` | `true` | Riconoscimento automatico del genere per i nuovi download. |
+| `GENRE_PROVIDERS` | `deezer,musicbrainz` | Provider interrogati in ordine. |
+| `MUSICBRAINZ_CONTACT` | *(vuoto)* | Email o URL da inserire nello User-Agent verso MusicBrainz (consigliato dalla loro policy). |
+| `GENRE_PLAYLISTS_ENABLED` | `true` | Crea/aggiorna le playlist per genere su Jellyfin (richiede `JELLYFIN_ENABLED=true`). |
+| `GENRE_PLAYLIST_PREFIX` | `Genere: ` | Prefisso dei nomi delle playlist gestite dall'app. |
+| `GENRE_PLAYLIST_MIN_TRACKS` | `1` | Numero minimo di brani perché un genere abbia la sua playlist. |
+| `GENRE_PLAYLIST_SYNC_DELAY_SECONDS` | `90` | Attesa dopo un download prima di sincronizzare le playlist (tempo per la scansione di Jellyfin). |
 | `TZ` | `Europe/Rome` | Timezone per log e timestamp. |
 
 ---
@@ -251,6 +346,11 @@ Documentazione OpenAPI interattiva su `/docs` (e schema su `/openapi.json`).
 | `POST` | `/api/downloads/{id}/retry` | Ri-accoda un download `FAILED`/`CANCELLED`. |
 | `POST` | `/api/downloads/{id}/cancel` | Annulla un download in coda o in corso. |
 | `DELETE` | `/api/downloads/{id}` | Rimuove un download dalla cronologia. |
+| `POST` | `/api/downloads/{id}/trim` | Taglia intro/outro (`trim_start_seconds`, `trim_end_seconds`). Su un brano completato modifica il file in libreria; su un job non ancora processato imposta il taglio da applicare. |
+| `POST` | `/api/downloads/{id}/genre` | Imposta a mano il genere (anche nel tag del file). Vuoto = rimuove e riabilita il riconoscimento automatico. |
+| `GET` | `/api/genres` | Generi in libreria con conteggi, brani senza genere, stato del riconoscimento in background. |
+| `POST` | `/api/genres/detect` | Avvia il riconoscimento del genere sui brani già scaricati (`{"force": true}` = ricalcola anche quelli già presenti, mai quelli manuali). |
+| `POST` | `/api/playlists/sync` | Crea/aggiorna subito le playlist per genere su Jellyfin. |
 | `GET` | `/api/events` | Stream **SSE** con progresso in tempo reale (percentuale, velocità, ETA, stato). |
 | `GET` | `/api/health` | Healthcheck (usato anche dal container). |
 | `GET` | `/api/version` | Nome e versione applicazione. |

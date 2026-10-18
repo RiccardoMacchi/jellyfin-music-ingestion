@@ -6,14 +6,18 @@ import asyncio
 from fastapi import APIRouter, Depends, HTTPException
 
 from backend.api.dependencies import get_download_repo
-from backend.api.schemas import DownloadCreateRequest, DownloadOut
+from backend.api.schemas import GENRE_SOURCES, DownloadCreateRequest, DownloadOut, TrimRequest
+from backend.audio.converter import ConversionError
 from backend.database.models import DownloadRecord, DownloadStatus
 from backend.database.repository import DownloadRepository
 from backend.downloader.validator import InvalidURLError, extract_video_id_hint
 from backend.downloader.ytdlp_client import DownloadError, extract_video_info
 from backend.jellyfin.client import trigger_library_refresh
-from backend.library.mover import delete_from_library
-from backend.metadata.parser import parse_title
+from backend.library.mover import MoveError, delete_from_library
+from backend.library.trimmer import trim_library_file
+from backend.library.validator import ValidationError
+from backend.metadata.parser import clean_channel_name, parse_title
+from backend.metadata.tagger import TaggingError
 from backend.queue.worker import request_cancel
 from backend.security.rate_limit import rate_limiter
 from backend.utils.logging import get_logger
@@ -23,6 +27,10 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api", tags=["downloads"], dependencies=[Depends(rate_limiter)])
 
 _ACTIVE_STATUSES = {DownloadStatus.PENDING.value, DownloadStatus.DOWNLOADING.value, DownloadStatus.PROCESSING.value}
+
+# Job (completati) il cui file e' in fase di taglio: evita due tagli
+# concorrenti sullo stesso file.
+_trimming: set[int] = set()
 
 
 def _to_out(record: DownloadRecord) -> DownloadOut:
@@ -51,7 +59,7 @@ async def create_download(payload: DownloadCreateRequest, repo: DownloadReposito
         if not title or not artist:
             parsed = parse_title(info.title, channel_name=info.uploader)
             title = title or parsed.title or info.title
-            artist = artist or parsed.artist or info.uploader
+            artist = artist or parsed.artist or clean_channel_name(info.uploader)
         thumbnail_url = thumbnail_url or info.thumbnail
         duration = duration if duration is not None else info.duration
 
@@ -63,6 +71,13 @@ async def create_download(payload: DownloadCreateRequest, repo: DownloadReposito
         return _to_out(existing)
 
     album = payload.album or ""
+    genre = (payload.genre or "").strip()
+    if not genre:
+        genre_source = ""
+    elif payload.genre_source in GENRE_SOURCES:
+        genre_source = payload.genre_source
+    else:
+        genre_source = "manual"
     album_artist = payload.album_artist or ("Various Artists" if payload.is_compilation else (artist or ""))
 
     record = DownloadRecord(
@@ -75,13 +90,16 @@ async def create_download(payload: DownloadCreateRequest, repo: DownloadReposito
         track_number=payload.track_number,
         disc_number=payload.disc_number,
         year=payload.year,
-        genre=payload.genre or "",
+        genre=genre,
+        genre_source=genre_source,
         composer=payload.composer or "",
         source_type=payload.source_type,
         playlist_id=payload.playlist_id,
         position_in_playlist=payload.position_in_playlist,
         duration_seconds=duration,
         thumbnail_url=thumbnail_url,
+        trim_start_seconds=payload.trim_start_seconds,
+        trim_end_seconds=payload.trim_end_seconds,
         status=DownloadStatus.PENDING.value,
     )
     created = await asyncio.to_thread(repo.create, record)
@@ -136,6 +154,54 @@ async def cancel_download(download_id: int, repo: DownloadRepository = Depends(g
     return _to_out(updated)
 
 
+@router.post("/downloads/{download_id}/trim", response_model=DownloadOut)
+async def trim_download(
+    download_id: int, payload: TrimRequest, repo: DownloadRepository = Depends(get_download_repo)
+) -> DownloadOut:
+    """Taglia intro/outro.
+
+    - Job COMPLETED: taglia DAVVERO il file in libreria (operazione
+      permanente, i secondi si sommano a eventuali tagli precedenti).
+    - Job non ancora processato (PENDING/FAILED/CANCELLED): imposta il taglio
+      che verra' applicato al prossimo download (sostituisce il precedente).
+    """
+    record = await asyncio.to_thread(repo.get, download_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Download non trovato")
+
+    start, end = payload.trim_start_seconds, payload.trim_end_seconds
+
+    if record.status in (DownloadStatus.PENDING.value, DownloadStatus.FAILED.value, DownloadStatus.CANCELLED.value):
+        await asyncio.to_thread(
+            repo.update_metadata, download_id, trim_start_seconds=start, trim_end_seconds=end,
+        )
+        return _to_out(await asyncio.to_thread(repo.get, download_id))
+
+    if record.status != DownloadStatus.COMPLETED.value or not record.file_path:
+        raise HTTPException(status_code=409, detail=f"Impossibile tagliare un job in stato {record.status}")
+    if not start and not end:
+        raise HTTPException(status_code=422, detail="Indica almeno un taglio all'inizio o alla fine")
+    if download_id in _trimming:
+        raise HTTPException(status_code=409, detail="Taglio gia' in corso per questo brano")
+
+    _trimming.add(download_id)
+    try:
+        new_duration = await trim_library_file(record.file_path, start, end, download_id)
+    except (ConversionError, TaggingError, ValidationError, MoveError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        _trimming.discard(download_id)
+
+    await asyncio.to_thread(
+        repo.update_metadata, download_id,
+        trim_start_seconds=(record.trim_start_seconds or 0) + start,
+        trim_end_seconds=(record.trim_end_seconds or 0) + end,
+        duration_seconds=round(new_duration),
+    )
+    await trigger_library_refresh()
+    return _to_out(await asyncio.to_thread(repo.get, download_id))
+
+
 @router.delete("/downloads/{download_id}")
 async def delete_download(download_id: int, repo: DownloadRepository = Depends(get_download_repo)) -> dict:
     record = await asyncio.to_thread(repo.get, download_id)
@@ -143,6 +209,8 @@ async def delete_download(download_id: int, repo: DownloadRepository = Depends(g
         raise HTTPException(status_code=404, detail="Download non trovato")
     if record.status in (DownloadStatus.DOWNLOADING.value, DownloadStatus.PROCESSING.value):
         raise HTTPException(status_code=409, detail="Annulla il job prima di eliminarlo")
+    if download_id in _trimming:
+        raise HTTPException(status_code=409, detail="Attendi la fine del taglio prima di eliminarlo")
 
     # Elimina anche il file audio dalla libreria (non solo il record in DB).
     file_deleted = False

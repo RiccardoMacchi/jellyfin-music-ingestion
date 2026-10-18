@@ -23,6 +23,7 @@ from backend.database.models import (
 _DOWNLOAD_FIELDS = [
     "youtube_id", "url", "title", "artist", "album", "album_artist",
     "track_number", "disc_number", "year", "genre", "composer",
+    "genre_source", "trim_start_seconds", "trim_end_seconds",
     "source_type", "playlist_id", "position_in_playlist",
     "duration_seconds", "thumbnail_url", "status", "progress", "speed",
     "eta", "file_path", "cover_path", "error", "retry_count",
@@ -69,6 +70,21 @@ class DownloadRepository:
         else:
             rows = self.db.query("SELECT * FROM downloads ORDER BY id DESC LIMIT ?", (limit,))
         return [_row_to_download(r) for r in rows]
+
+    def list_completed(self) -> list[DownloadRecord]:
+        """Tutti i brani effettivamente in libreria (senza limite)."""
+        rows = self.db.query(
+            "SELECT * FROM downloads WHERE status = 'COMPLETED' AND file_path != '' ORDER BY id ASC"
+        )
+        return [_row_to_download(r) for r in rows]
+
+    def genre_counts(self) -> list[tuple[str, int]]:
+        """(genere, n. brani) dei brani in libreria; '' = senza genere."""
+        rows = self.db.query(
+            "SELECT genre, COUNT(*) AS n FROM downloads WHERE status = 'COMPLETED' "
+            "AND file_path != '' GROUP BY genre ORDER BY n DESC, genre ASC"
+        )
+        return [(r["genre"], r["n"]) for r in rows]
 
     def next_pending(self) -> Optional[DownloadRecord]:
         """Preleva ATOMICAMENTE il prossimo job PENDING marcandolo DOWNLOADING

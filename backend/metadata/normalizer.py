@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from backend.downloader.ytdlp_client import VideoInfo
-from backend.metadata.parser import build_artist_credit, parse_title
+from backend.metadata.parser import build_artist_credit, clean_channel_name, parse_title
 
 
 @dataclass
@@ -50,7 +50,7 @@ def normalize_metadata(
     primary_artist = (
         overrides.get("artist")
         or parsed.artist
-        or video_info.uploader
+        or clean_channel_name(video_info.uploader)
         or "Unknown Artist"
     )
     title = overrides.get("title") or parsed.title or video_info.title

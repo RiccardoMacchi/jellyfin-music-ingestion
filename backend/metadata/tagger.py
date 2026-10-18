@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from mutagen.flac import FLAC, Picture
-from mutagen.id3 import APIC, COMM, ID3, TCOM, TCON, TALB, TCON, TDRC, TIT2, TPE1, TPE2, TPOS, TRCK
+from mutagen.id3 import APIC, COMM, ID3, TCOM, TCON, TALB, TDRC, TIT2, TPE1, TPE2, TPOS, TRCK
 from mutagen.mp3 import MP3
 from mutagen.mp4 import MP4, MP4Cover
 
@@ -127,3 +127,78 @@ def _write_flac(file_path: str, m: TrackMetadata, cover_bytes: bytes | None) -> 
         audio.add_picture(pic)
 
     audio.save()
+
+
+def copy_tags(source_path: str, dest_path: str) -> None:
+    """Copia TUTTI i tag (cover inclusa) da `source_path` a `dest_path`,
+    entrambi dello stesso formato. Usato dopo il taglio di un brano gia' in
+    libreria: ffmpeg in stream copy produce un file con il solo audio."""
+    ext = Path(dest_path).suffix.lower().lstrip(".")
+    try:
+        if ext == "m4a":
+            src, dst = MP4(source_path), MP4(dest_path)
+            if dst.tags is None:
+                dst.add_tags()
+            dst.tags.clear()
+            for key, value in (src.tags or {}).items():
+                dst.tags[key] = value
+            dst.save()
+        elif ext == "mp3":
+            try:
+                tags = ID3(source_path)
+            except Exception:
+                return  # sorgente senza tag: niente da copiare
+            tags.save(dest_path, v2_version=3)
+        elif ext == "flac":
+            src, dst = FLAC(source_path), FLAC(dest_path)
+            dst.delete()
+            dst.clear_pictures()
+            for key in (src.tags.keys() if src.tags else []):
+                dst[key] = src[key]
+            for pic in src.pictures:
+                dst.add_picture(pic)
+            dst.save()
+        else:
+            raise TaggingError(f"Formato non supportato per il tagging: {ext}")
+    except TaggingError:
+        raise
+    except Exception as exc:
+        raise TaggingError(f"Copia dei tag fallita: {exc}") from exc
+
+
+def write_genre(file_path: str, genre: str) -> None:
+    """Aggiorna SOLO il tag genere di un file gia' in libreria (lascia
+    intatti tutti gli altri tag). Genere vuoto = rimuove il tag."""
+    ext = Path(file_path).suffix.lower().lstrip(".")
+    try:
+        if ext == "m4a":
+            audio = MP4(file_path)
+            if audio.tags is None:
+                audio.add_tags()
+            if genre:
+                audio.tags["\xa9gen"] = [genre]
+            else:
+                audio.tags.pop("\xa9gen", None)
+            audio.save()
+        elif ext == "mp3":
+            try:
+                tags = ID3(file_path)
+            except Exception:
+                tags = ID3()
+            tags.delall("TCON")
+            if genre:
+                tags.add(TCON(encoding=3, text=genre))
+            tags.save(file_path, v2_version=3)
+        elif ext == "flac":
+            audio = FLAC(file_path)
+            if genre:
+                audio["genre"] = genre
+            elif "genre" in audio:
+                del audio["genre"]
+            audio.save()
+        else:
+            raise TaggingError(f"Formato non supportato per il tagging: {ext}")
+    except TaggingError:
+        raise
+    except Exception as exc:
+        raise TaggingError(f"Scrittura del genere fallita: {exc}") from exc
